@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
+import { motion, AnimatePresence } from "motion/react";
+import { LogOut } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { useChat, type DisplayMessage } from "@/hooks/use-chat";
@@ -14,8 +16,7 @@ import { TypingIndicator } from "./typing-indicator";
 import { TrustReceipt } from "./trust-receipt";
 import { ModeToggle, type ChatMode } from "./mode-toggle";
 import { VoicePanel } from "@/components/voice/voice-panel";
-import { Button } from "@/components/ui/button";
-import { LogOutIcon } from "lucide-react";
+import { CreateCompanion } from "@/components/onboarding/create-companion";
 
 function formatMarkdown(text: string): string {
   return text
@@ -24,34 +25,58 @@ function formatMarkdown(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/`(.*?)`/g, '<code class="rounded bg-secondary px-1 py-0.5 font-mono text-xs">$1</code>')
+    .replace(/`(.*?)`/g, '<code class="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs text-neutral-600">$1</code>')
     .replace(/\n/g, "<br>");
 }
 
 function ChatMessage({ msg }: { msg: DisplayMessage }) {
   return (
-    <Message
-      from={msg.role}
-      className={`flex flex-col gap-1 ${msg.role === "assistant" ? "items-start" : "items-end"}`}
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
     >
-      <div>
-        <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-          {msg.role === "user" ? "You" : "Mneme"}
+      <Message
+        from={msg.role}
+        className={`flex flex-col gap-1 ${msg.role === "assistant" ? "items-start" : "items-end"}`}
+      >
+        <div>
+          <div className="mb-1 px-1 text-[10px] font-light uppercase tracking-widest text-neutral-300">
+            {msg.role === "user" ? "You" : "Mneme"}
+          </div>
+          <MessageContent>
+            <div dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }} />
+          </MessageContent>
+          {msg.trustReceipt && <TrustReceipt receipt={msg.trustReceipt} />}
         </div>
-        <MessageContent>
-          <div dangerouslySetInnerHTML={{ __html: formatMarkdown(msg.content) }} />
-        </MessageContent>
-        {msg.trustReceipt && <TrustReceipt receipt={msg.trustReceipt} />}
-      </div>
-    </Message>
+      </Message>
+    </motion.div>
   );
+}
+
+const COMPANION_KEY = "mneme-companion";
+
+function getStoredCompanion(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(COMPANION_KEY);
 }
 
 export function ChatPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { messages, isLoading, sendMessage, loadHistory, historyLoaded } = useChat();
-  const [mode, setMode] = useState<ChatMode>("chat");
+  const [mode, setMode] = useState<ChatMode>("voice");
+  const [companion, setCompanion] = useState<string | null>(null);
+  const [onboarded, setOnboarded] = useState(false);
+
+  // Check if companion exists on mount
+  useEffect(() => {
+    const stored = getStoredCompanion();
+    if (stored) {
+      setCompanion(stored);
+      setOnboarded(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -67,54 +92,94 @@ export function ChatPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="flex h-dvh items-center justify-center">
-        <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-[#FAFAFA]">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="text-center"
+        >
+          <h1 className="text-2xl font-light tracking-tight text-neutral-900">Mneme</h1>
+          <p className="mt-2 text-sm font-light text-neutral-400">Loading your session...</p>
+        </motion.div>
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+          className="size-5 rounded-full border-2 border-neutral-200 border-t-neutral-400"
+        />
       </div>
     );
   }
 
+  // Show onboarding if no companion created yet
+  if (!onboarded) {
+    return (
+      <CreateCompanion
+        onComplete={(desc) => {
+          localStorage.setItem(COMPANION_KEY, desc);
+          setCompanion(desc);
+          setOnboarded(true);
+        }}
+      />
+    );
+  }
+
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col bg-[#FAFAFA]">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-        <h1 className="text-sm font-semibold tracking-tight">Mneme</h1>
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between px-6 py-4">
+        <h1 className="text-sm font-medium tracking-tight text-neutral-900">
+          Mneme
+        </h1>
+        <div className="flex items-center gap-4">
           <ModeToggle mode={mode} onChange={setMode} />
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs font-light text-neutral-400">
             {user.email}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="size-8 p-0 text-muted-foreground hover:text-foreground"
+          <button
             onClick={() => signOut(auth)}
+            className="rounded-full p-2 text-neutral-300 transition-colors hover:bg-neutral-100 hover:text-neutral-500"
           >
-            <LogOutIcon className="size-3.5" />
-          </Button>
+            <LogOut size={14} />
+          </button>
         </div>
       </header>
 
-      {mode === "chat" ? (
-        <>
-          {/* Text Chat */}
-          {messages.length === 0 && !isLoading ? (
-            <WelcomeScreen onPrompt={sendMessage} />
-          ) : (
-            <Conversation className="flex-1">
-              <ConversationContent className="mx-auto max-w-3xl">
-                {messages.map((msg) => (
-                  <ChatMessage key={msg.id} msg={msg} />
-                ))}
-                {isLoading && <TypingIndicator />}
-              </ConversationContent>
-            </Conversation>
-          )}
-          <MessageInput onSend={sendMessage} disabled={isLoading} />
-        </>
-      ) : (
-        /* Voice + 3D Panda */
-        <VoicePanel />
-      )}
+      <AnimatePresence mode="wait">
+        {mode === "chat" ? (
+          <motion.div
+            key="chat"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col overflow-hidden"
+          >
+            {messages.length === 0 && !isLoading ? (
+              <WelcomeScreen onPrompt={sendMessage} />
+            ) : (
+              <Conversation className="flex-1">
+                <ConversationContent className="mx-auto max-w-3xl">
+                  {messages.map((msg) => (
+                    <ChatMessage key={msg.id} msg={msg} />
+                  ))}
+                  {isLoading && <TypingIndicator />}
+                </ConversationContent>
+              </Conversation>
+            )}
+            <MessageInput onSend={sendMessage} disabled={isLoading} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="voice"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex flex-1 flex-col overflow-hidden"
+          >
+            <VoicePanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
