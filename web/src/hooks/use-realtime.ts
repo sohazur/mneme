@@ -33,6 +33,7 @@ export function useRealtime() {
   // TTS queue
   const ttsQueue = useRef<string[]>([]);
   const ttsPlaying = useRef(false);
+  const onTTSDone = useRef<(() => void) | null>(null);
 
   // ── ElevenLabs TTS ──
 
@@ -40,6 +41,12 @@ export function useRealtime() {
     if (ttsQueue.current.length === 0) {
       ttsPlaying.current = false;
       setState((s) => (s === "speaking" ? "listening" : s));
+      // Fire callback if set (e.g. auto-start mic after greeting)
+      if (onTTSDone.current) {
+        const cb = onTTSDone.current;
+        onTTSDone.current = null;
+        cb();
+      }
       return;
     }
 
@@ -343,13 +350,17 @@ export function useRealtime() {
     setState("idle");
   }, [stopTTS]);
 
-  // ── Greeting ──
+  // ── Greeting (plays TTS then auto-starts mic) ──
 
   const playGreeting = useCallback((text: string) => {
     addOrUpdateTranscript("assistant", text, true);
     setState("speaking");
+    // After greeting TTS finishes, auto-start the voice session
+    onTTSDone.current = () => {
+      start();
+    };
     speakWithElevenLabs(text);
-  }, [addOrUpdateTranscript, speakWithElevenLabs]);
+  }, [addOrUpdateTranscript, speakWithElevenLabs, start]);
 
   // Cleanup on unmount
   useEffect(() => () => stop(), [stop]);
