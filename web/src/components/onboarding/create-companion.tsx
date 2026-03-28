@@ -7,7 +7,7 @@ import { Sparkles } from "lucide-react";
 type OnboardingState = "input" | "creating" | "done";
 
 interface CreateCompanionProps {
-  onComplete: (description: string) => void;
+  onComplete: () => void;
 }
 
 const SHAPING_MESSAGES = [
@@ -16,12 +16,45 @@ const SHAPING_MESSAGES = [
   "Bringing it to life...",
 ];
 
+const GREETING = "Oh, hello there! Did you see that little butterfly? It fluttered right past my nose. I just love exploring all the pretty flowers in the forest. Everything feels so sparkly today, doesn't it? I wonder what new adventures we'll find around the next bend. Come on, let's go see!";
+
+async function startGreetingTTS(): Promise<HTMLAudioElement | null> {
+  try {
+    // Get Firebase token
+    const { auth } = await import("@/lib/firebase");
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+    const res = await fetch("/api/realtime/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ text: GREETING }),
+    });
+
+    if (!res.ok) return null;
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.volume = 1.0;
+
+    // Start playing immediately (we're still in user gesture context from Create click)
+    await audio.play();
+    return audio;
+  } catch (err) {
+    console.warn("[Greeting] TTS prefetch failed:", err);
+    return null;
+  }
+}
+
 export function CreateCompanion({ onComplete }: CreateCompanionProps) {
   const [description, setDescription] = useState("");
   const [phase, setPhase] = useState<OnboardingState>("input");
   const [shapingMsg, setShapingMsg] = useState(SHAPING_MESSAGES[0]);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!description.trim()) return;
     setPhase("creating");
 
@@ -34,15 +67,29 @@ export function CreateCompanion({ onComplete }: CreateCompanionProps) {
       }
     }, 1200);
 
-    // Simulate character creation (3.5s)
-    setTimeout(() => {
-      clearInterval(interval);
-      setPhase("done");
-      // Brief pause on "done" then proceed
-      setTimeout(() => {
-        onComplete(description.trim());
-      }, 600);
-    }, 3500);
+    // Start TTS fetch NOW while we still have user gesture from the Create click
+    // This is critical — browsers only allow audio.play() in user gesture context
+    const ttsPromise = startGreetingTTS();
+
+    // Wait for the animation
+    await new Promise((r) => setTimeout(r, 3500));
+    clearInterval(interval);
+
+    setPhase("done");
+
+    // Wait for TTS to start playing (it already started during "creating" phase)
+    const audio = await ttsPromise;
+
+    // Brief pause to show "ready" state, then transition
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Store the playing audio globally so VoicePanel can track it
+    if (audio) {
+      (window as unknown as Record<string, unknown>).__mneme_greeting_audio = audio;
+      (window as unknown as Record<string, unknown>).__mneme_greeting_text = GREETING;
+    }
+
+    onComplete();
   };
 
   return (
@@ -57,7 +104,6 @@ export function CreateCompanion({ onComplete }: CreateCompanionProps) {
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="flex w-full max-w-2xl flex-col items-center gap-8"
           >
-            {/* Title */}
             <div className="text-center">
               <h1 className="text-4xl font-light tracking-tight text-neutral-900 sm:text-5xl">
                 Create your AI companion{" "}
@@ -68,7 +114,6 @@ export function CreateCompanion({ onComplete }: CreateCompanionProps) {
               </p>
             </div>
 
-            {/* Input */}
             <div className="flex w-full max-w-xl items-center gap-3 rounded-full border border-neutral-200 bg-white px-6 py-4 shadow-sm transition-shadow focus-within:shadow-md">
               <input
                 type="text"
@@ -102,7 +147,6 @@ export function CreateCompanion({ onComplete }: CreateCompanionProps) {
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             className="flex flex-col items-center gap-6"
           >
-            {/* Animated orb */}
             <div className="relative">
               <motion.div
                 className="size-20 rounded-full bg-neutral-900"
@@ -118,7 +162,6 @@ export function CreateCompanion({ onComplete }: CreateCompanionProps) {
                 transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               />
             </div>
-
             <motion.p
               key={shapingMsg}
               initial={{ opacity: 0, y: 5 }}

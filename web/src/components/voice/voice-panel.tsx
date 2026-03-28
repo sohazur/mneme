@@ -41,105 +41,112 @@ function PandaAvatar({ isSpeaking }: { isSpeaking: boolean }) {
   );
 }
 
-async function playGreetingTTS(text: string): Promise<void> {
-  // Get Firebase token for authenticated TTS call
-  const { auth } = await import("@/lib/firebase");
-  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-
-  const res = await fetch("/api/realtime/tts", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ text }),
-  });
-
-  if (!res.ok) throw new Error(`TTS failed: ${res.status}`);
-
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-
-  return new Promise((resolve, reject) => {
-    const audio = new Audio(url);
-    audio.volume = 1.0;
-    audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Audio playback failed")); };
-    audio.play().catch(reject);
-  });
-}
-
 export function VoicePanel() {
   const { state, transcripts, error, start, stop } = useRealtime();
   const isActive = state !== "idle" && state !== "error";
-  const [greeting, setGreeting] = useState(false);
-  const isSpeaking = state === "speaking" || greeting;
-  const greetedRef = useRef(false);
+  const [greetingSpeaking, setGreetingSpeaking] = useState(false);
+  const isSpeaking = state === "speaking" || greetingSpeaking;
+  const initRef = useRef(false);
   const startRef = useRef(start);
   startRef.current = start;
 
-  // Merge greeting transcript with realtime transcripts
+  // Greeting transcript
   const [greetingTranscript, setGreetingTranscript] = useState<TranscriptEntry | null>(null);
   const allTranscripts = greetingTranscript
     ? [greetingTranscript, ...transcripts]
     : transcripts;
 
-  // Play greeting on mount, then auto-start mic
   useEffect(() => {
-    if (greetedRef.current) return;
-    greetedRef.current = true;
+    if (initRef.current) return;
+    initRef.current = true;
 
-    const run = async () => {
-      // Show transcript immediately
-      setGreetingTranscript({
-        id: "greeting",
-        role: "assistant",
-        text: GREETING,
-        final: true,
-      });
+    // Check if onboarding already started the greeting audio
+    const win = window as unknown as Record<string, unknown>;
+    const greetingAudio = win.__mneme_greeting_audio as HTMLAudioElement | undefined;
+    const greetingText = (win.__mneme_greeting_text as string) || GREETING;
 
-      // Play TTS
-      setGreeting(true);
-      try {
-        await playGreetingTTS(GREETING);
-      } catch (err) {
-        console.warn("[Greeting] TTS failed:", err);
+    // Show transcript immediately
+    setGreetingTranscript({
+      id: "greeting",
+      role: "assistant",
+      text: greetingText,
+      final: true,
+    });
+
+    if (greetingAudio && !greetingAudio.ended) {
+      // Audio is already playing from onboarding — just wait for it to finish
+      setGreetingSpeaking(true);
+
+      const onEnd = async () => {
+        setGreetingSpeaking(false);
+        // Clean up global refs
+        delete win.__mneme_greeting_audio;
+        delete win.__mneme_greeting_text;
+        // Auto-start mic
+        try { await startRef.current(); } catch { /* ok */ }
+      };
+
+      greetingAudio.addEventListener("ended", onEnd, { once: true });
+      // If it already ended between mount and this effect
+      if (greetingAudio.ended) {
+        onEnd();
       }
-      setGreeting(false);
+    } else {
+      // No greeting audio from onboarding (e.g. direct navigation)
+      // Try to play it now and then start mic
+      delete win.__mneme_greeting_audio;
+      delete win.__mneme_greeting_text;
 
-      // Auto-start the voice session after greeting
-      try {
-        await startRef.current();
-      } catch (err) {
-        console.warn("[Greeting] Auto-start failed:", err);
-      }
-    };
+      const run = async () => {
+        setGreetingSpeaking(true);
+        try {
+          const { auth } = await import("@/lib/firebase");
+          const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+          const res = await fetch("/api/realtime/tts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ text: greetingText }),
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.volume = 1.0;
+            await new Promise<void>((resolve) => {
+              audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+              audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+              audio.play().catch(() => resolve());
+            });
+          }
+        } catch { /* ok */ }
+        setGreetingSpeaking(false);
+        try { await startRef.current(); } catch { /* ok */ }
+      };
 
-    // Small delay so UI renders first
-    const timer = setTimeout(run, 500);
-    return () => clearTimeout(timer);
+      run();
+    }
   }, []);
 
   return (
     <div className="flex flex-1 flex-col">
-      {/* Panda Avatar */}
       <div className="flex flex-1 items-center justify-center">
         <PandaAvatar isSpeaking={isSpeaking} />
       </div>
 
-      {/* Controls */}
       <div className="flex flex-col items-center py-6">
         {error && (
           <p className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-500">{error}</p>
         )}
         <MicButton
-          active={isActive || greeting}
+          active={isActive || greetingSpeaking}
           onClick={isActive ? stop : start}
-          state={greeting ? "speaking" : state}
+          state={greetingSpeaking ? "speaking" : state}
         />
       </div>
 
-      {/* Transcripts */}
       <VoiceTranscript transcripts={allTranscripts} />
     </div>
   );
