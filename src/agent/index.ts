@@ -1,7 +1,7 @@
 import { HydraDBClient } from "../memory/hydradb.js";
 import { callLLM, TOOL_DEFINITIONS } from "./llm.js";
 import { addSchedule, listSchedules } from "../scheduler/index.js";
-import { executeIntegrationAction } from "../integrations/one.js";
+import { executeIntegrationAction, getIntegrations } from "../integrations/one.js";
 import type {
     AgentRequest,
     AgentResponse,
@@ -11,16 +11,32 @@ import type {
 } from "./types.js";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
-const SYSTEM_PROMPT = `You are Mneme, a personal AI operator. You help users manage their work, communications, and schedule.
+function buildSystemPrompt(connectedIntegrations: string[]): string {
+    const integrationStatus = connectedIntegrations.length > 0
+        ? `\n\n## Connected Integrations (ACTIVE — you MUST use these via the integration_action tool)\nThe user has connected the following integrations via One. You have FULL access to them:\n${connectedIntegrations.map((name) => {
+            switch (name) {
+                case "gmail": return "- **Gmail** (CONNECTED): You can read emails, search inbox, draft emails, and send emails. Use integration_action with integration='gmail'.";
+                case "google_calendar": return "- **Google Calendar** (CONNECTED): You can list events, create events, find free time, and update events. Use integration_action with integration='google_calendar'.";
+                case "github": return "- **GitHub** (CONNECTED): You can create issues, create PRs, list repos, and search code. Use integration_action with integration='github'.";
+                case "slack": return "- **Slack** (CONNECTED): You can send messages, list channels, and search messages. Use integration_action with integration='slack'.";
+                default: return `- **${name}** (CONNECTED)`;
+            }
+        }).join("\n")}\n\nIMPORTANT: When the user asks you to do ANYTHING related to a connected integration (read emails, check calendar, send messages, etc.), you MUST call the integration_action tool. Do NOT say you can't do it — you CAN because the integration is connected. Always use the tool first, then summarize the results.`
+        : "\n\nNo integrations are connected yet. If the user asks about email, calendar, etc., tell them to connect the integration using the Integrations panel in the top-right corner.";
 
-You have access to these capabilities:
+    return `You are Mneme, a personal AI operator. You help users manage their work, communications, and schedule by taking ACTIONS on their behalf.
+
+## Your Capabilities
 - **Memory**: You recall context from past conversations automatically. Relevant memories are injected below.
-- **Integrations** (via One): Gmail, Google Calendar, GitHub, Slack — you can draft emails, schedule meetings, create issues, etc.
+- **Integrations** (via One): You can perform real actions on connected apps — reading, writing, searching.
 - **Scheduling**: You can set reminders and recurring tasks that fire proactively.
 
-Be concise, helpful, and action-oriented. When the user asks you to do something (email, meeting, reminder), use the appropriate tool. Always confirm what you did.
-
-If you have recalled memories, use them to provide context-aware responses.`;
+## Rules
+1. When the user asks you to DO something (read emails, schedule meeting, send message, create issue), ALWAYS call the appropriate tool. Never just describe what you would do — DO IT.
+2. Be concise and action-oriented. Confirm what you did after doing it.
+3. If you have recalled memories, use them to provide context-aware responses.
+4. Show the user real results from their integrations.${integrationStatus}`;
+}
 
 export class MnemeAgent {
     private hydra: HydraDBClient | null;
@@ -60,14 +76,22 @@ export class MnemeAgent {
             }
         }
 
-        // 2. Build messages
+        // 2. Get connected integrations for this session
+        const integrations = getIntegrations(req.chatId);
+        const connectedNames = integrations
+            .filter((i) => i.connected)
+            .map((i) => i.name);
+
+        // 3. Build messages with dynamic system prompt
         const memoryContext =
             memoriesRecalled.length > 0
                 ? `\n\n## Recalled Memories\n${memoriesRecalled.map((m) => `- [score: ${m.score.toFixed(2)}] ${m.text}`).join("\n")}`
                 : "";
 
+        const systemPrompt = buildSystemPrompt(connectedNames) + memoryContext;
+
         const messages: ChatCompletionMessageParam[] = [
-            { role: "system", content: SYSTEM_PROMPT + memoryContext },
+            { role: "system", content: systemPrompt },
             ...req.history.slice(-18).map(
                 (m) =>
                     ({
@@ -78,11 +102,11 @@ export class MnemeAgent {
             { role: "user", content: req.message },
         ];
 
-        // 3. Call LLM (with tool definitions)
+        // 4. Call LLM (with tool definitions)
         let llmResponse = await callLLM(messages, TOOL_DEFINITIONS);
         let reply = llmResponse.content ?? "";
 
-        // 4. Handle tool calls (single round)
+        // 5. Handle tool calls (single round)
         if (llmResponse.toolCalls.length > 0) {
             const toolMessages: ChatCompletionMessageParam[] = [...messages];
 
@@ -125,7 +149,7 @@ export class MnemeAgent {
             reply = finalResponse.content ?? reply;
         }
 
-        // 5. Store exchange in HydraDB
+        // 6. Store exchange in HydraDB
         if (this.hydra && reply) {
             memoryStored = await this.hydra.addMemory(
                 req.chatId,
@@ -138,7 +162,7 @@ export class MnemeAgent {
             }
         }
 
-        // 6. Build trust receipt
+        // 7. Build trust receipt
         const trustReceipt: TrustReceipt = {
             timestamp: new Date().toISOString(),
             model: process.env.LLM_MODEL || "moonshotai/Kimi-K2.5",

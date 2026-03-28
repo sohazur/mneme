@@ -62,7 +62,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
         function: {
             name: "integration_action",
             description:
-                "Perform an action via a connected integration (Gmail, Google Calendar, GitHub, etc.). Use this when the user asks you to send an email, schedule a meeting, create a PR, etc.",
+                "Perform an action via a connected integration. ALWAYS use this tool when the user asks about emails, calendar, GitHub, or Slack. Available actions per integration: gmail: read_email, list_emails, draft_email, send_email, search_emails. google_calendar: list_events, create_event, find_free_time, update_event. github: create_issue, create_pr, list_repos, search_code. slack: send_message, list_channels, search_messages.",
             parameters: {
                 type: "object",
                 properties: {
@@ -74,7 +74,7 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
                     action: {
                         type: "string",
                         description:
-                            "The action to perform (e.g. 'draft_email', 'create_event', 'create_issue')",
+                            "The exact action to perform. Gmail: read_email, list_emails, draft_email, send_email, search_emails. Calendar: list_events, create_event, find_free_time. GitHub: create_issue, create_pr, list_repos. Slack: send_message, list_channels.",
                     },
                     params: {
                         type: "object",
