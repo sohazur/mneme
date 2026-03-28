@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { apiPost } from "@/lib/api";
-import { auth } from "@/lib/firebase";
 
 export type ConnectionState = "idle" | "connecting" | "listening" | "hearing" | "processing" | "speaking" | "error";
 
@@ -21,16 +20,89 @@ export function useRealtime() {
   const [state, setState] = useState<ConnectionState>("idle");
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const micRef = useRef<MediaStream | null>(null);
 
-  // Mutable transcript accumulators (don't need re-renders)
+  // Transcript accumulators
   const userBuf = useRef("");
   const assistantBuf = useRef("");
   const pendingCalls = useRef<Record<string, { name: string; args: string }>>({});
+
+  // TTS queue
+  const ttsQueue = useRef<string[]>([]);
+  const ttsPlaying = useRef(false);
+
+  // ── ElevenLabs TTS ──
+
+  const playNextTTS = useCallback(async () => {
+    if (ttsQueue.current.length === 0) {
+      ttsPlaying.current = false;
+      setState((s) => (s === "speaking" ? "listening" : s));
+      return;
+    }
+
+    ttsPlaying.current = true;
+    setState("speaking");
+    const text = ttsQueue.current.shift()!;
+
+    try {
+      const token = await import("@/lib/firebase").then(async (m) => {
+        const user = m.auth.currentUser;
+        return user ? user.getIdToken() : null;
+      });
+
+      const res = await fetch("/api/realtime/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        console.error("[TTS] Failed:", res.status);
+        playNextTTS();
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.volume = 1.0;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        playNextTTS();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        playNextTTS();
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.error("[TTS] Error:", err);
+      playNextTTS();
+    }
+  }, []);
+
+  const speakWithElevenLabs = useCallback((text: string) => {
+    if (!text.trim()) return;
+    ttsQueue.current.push(text);
+    if (!ttsPlaying.current) {
+      playNextTTS();
+    }
+  }, [playNextTTS]);
+
+  const stopTTS = useCallback(() => {
+    ttsQueue.current = [];
+    ttsPlaying.current = false;
+  }, []);
+
+  // ── Transcript helpers ──
 
   const addOrUpdateTranscript = useCallback(
     (role: "user" | "assistant", text: string, final: boolean) => {
@@ -46,6 +118,8 @@ export function useRealtime() {
     },
     [],
   );
+
+  // ── Data channel event handler ──
 
   const handleEvent = useCallback(
     (ev: MessageEvent) => {
@@ -72,33 +146,34 @@ export function useRealtime() {
           userBuf.current = "";
           break;
 
-        // Assistant transcript
+        // Assistant audio transcript
         case "response.audio_transcript.delta":
           assistantBuf.current += (data.delta as string) || "";
           addOrUpdateTranscript("assistant", assistantBuf.current, false);
-          setState("speaking");
           break;
 
-        case "response.audio_transcript.done":
-          assistantBuf.current = (data.transcript as string) || assistantBuf.current;
-          addOrUpdateTranscript("assistant", assistantBuf.current, true);
+        case "response.audio_transcript.done": {
+          const finalText = (data.transcript as string) || assistantBuf.current;
+          addOrUpdateTranscript("assistant", finalText, true);
           assistantBuf.current = "";
-          setState("listening");
+          // Send to ElevenLabs for voice output
+          speakWithElevenLabs(finalText);
           break;
+        }
 
         // Text responses (fallback)
         case "response.text.delta":
           assistantBuf.current += (data.delta as string) || "";
           addOrUpdateTranscript("assistant", assistantBuf.current, false);
-          setState("speaking");
           break;
 
-        case "response.text.done":
-          assistantBuf.current = (data.text as string) || assistantBuf.current;
-          addOrUpdateTranscript("assistant", assistantBuf.current, true);
+        case "response.text.done": {
+          const finalText = (data.text as string) || assistantBuf.current;
+          addOrUpdateTranscript("assistant", finalText, true);
           assistantBuf.current = "";
-          setState("listening");
+          speakWithElevenLabs(finalText);
           break;
+        }
 
         // Function calls
         case "response.output_item.added": {
@@ -108,6 +183,7 @@ export function useRealtime() {
               name: item.name as string,
               args: "",
             };
+            setState("processing");
           }
           break;
         }
@@ -136,6 +212,7 @@ export function useRealtime() {
         // VAD states
         case "input_audio_buffer.speech_started":
           setState("hearing");
+          stopTTS(); // Stop TTS if user starts talking
           break;
         case "input_audio_buffer.speech_stopped":
           setState("processing");
@@ -143,18 +220,22 @@ export function useRealtime() {
 
         // Errors
         case "error":
+          console.error("[Realtime] Error:", data.error);
           setError((data.error as Record<string, string>)?.message || "Unknown error");
           setState("error");
           break;
 
         case "response.done":
-          // Only go back to listening if not already speaking
-          setState((s) => (s === "speaking" ? s : "listening"));
+          if (!ttsPlaying.current) {
+            setState((s) => (s === "speaking" ? s : "listening"));
+          }
           break;
       }
     },
-    [addOrUpdateTranscript],
+    [addOrUpdateTranscript, speakWithElevenLabs, stopTTS],
   );
+
+  // ── Function call execution ──
 
   const executeFunctionCall = useCallback(
     async (callId: string, name: string, argsStr: string) => {
@@ -185,9 +266,12 @@ export function useRealtime() {
     [],
   );
 
+  // ── Start/Stop ──
+
   const start = useCallback(async () => {
     setState("connecting");
     setError(null);
+    setTranscripts([]);
 
     try {
       // 1. Mic permission
@@ -197,7 +281,6 @@ export function useRealtime() {
       // 2. Get ephemeral token
       const session = await apiPost<RealtimeSession>("/api/realtime/session", {
         model: "gpt-4o-realtime-preview-2025-06-03",
-        voice: "shimmer",
       });
       const ephemeralKey = session.client_secret?.value;
       if (!ephemeralKey) throw new Error("No ephemeral key");
@@ -206,8 +289,12 @@ export function useRealtime() {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
+      // Mute OpenAI's audio — we use ElevenLabs for voice output
       pc.ontrack = (ev) => {
-        setRemoteStream(ev.streams[0]);
+        const audio = new Audio();
+        audio.srcObject = ev.streams[0];
+        audio.volume = 0;
+        audio.muted = true;
       };
 
       mic.getTracks().forEach((t) => pc.addTrack(t, mic));
@@ -217,7 +304,9 @@ export function useRealtime() {
       dcRef.current = dc;
       dc.onopen = () => setState("listening");
       dc.onmessage = handleEvent;
-      dc.onclose = () => setState("idle");
+      dc.onclose = () => {
+        if (pcRef.current) setState("idle");
+      };
 
       // 5. SDP exchange
       const offer = await pc.createOffer();
@@ -240,23 +329,22 @@ export function useRealtime() {
     } catch (err) {
       setError((err as Error).message);
       setState("error");
-      stop();
     }
   }, [handleEvent]);
 
   const stop = useCallback(() => {
+    stopTTS();
     dcRef.current?.close();
     dcRef.current = null;
     pcRef.current?.close();
     pcRef.current = null;
     micRef.current?.getTracks().forEach((t) => t.stop());
     micRef.current = null;
-    setRemoteStream(null);
     setState("idle");
-  }, []);
+  }, [stopTTS]);
 
   // Cleanup on unmount
   useEffect(() => () => stop(), [stop]);
 
-  return { state, transcripts, error, remoteStream, start, stop };
+  return { state, transcripts, error, start, stop };
 }
