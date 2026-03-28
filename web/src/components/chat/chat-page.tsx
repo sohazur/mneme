@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { motion, AnimatePresence } from "motion/react";
-import { LogOut } from "lucide-react";
+import { LogOut, Link2 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { useChat, type DisplayMessage } from "@/hooks/use-chat";
@@ -17,6 +17,7 @@ import { TrustReceipt } from "./trust-receipt";
 import { ModeToggle, type ChatMode } from "./mode-toggle";
 import { VoicePanel } from "@/components/voice/voice-panel";
 import { CreateCompanion } from "@/components/onboarding/create-companion";
+import { IntegrationsPanel } from "@/components/integrations/integrations-panel";
 
 function formatMarkdown(text: string): string {
   return text
@@ -54,29 +55,13 @@ function ChatMessage({ msg }: { msg: DisplayMessage }) {
   );
 }
 
-const COMPANION_KEY = "mneme-companion";
-
-function getStoredCompanion(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(COMPANION_KEY);
-}
-
 export function ChatPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { messages, isLoading, sendMessage, loadHistory, historyLoaded } = useChat();
   const [mode, setMode] = useState<ChatMode>("voice");
-  const [companion, setCompanion] = useState<string | null>(null);
   const [onboarded, setOnboarded] = useState(false);
-
-  // Check if companion exists on mount
-  useEffect(() => {
-    const stored = getStoredCompanion();
-    if (stored) {
-      setCompanion(stored);
-      setOnboarded(true);
-    }
-  }, []);
+  const [showIntegrations, setShowIntegrations] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -111,13 +96,11 @@ export function ChatPage() {
     );
   }
 
-  // Show onboarding if no companion created yet
+  // Always show onboarding first on every login
   if (!onboarded) {
     return (
       <CreateCompanion
-        onComplete={(desc) => {
-          localStorage.setItem(COMPANION_KEY, desc);
-          setCompanion(desc);
+        onComplete={() => {
           setOnboarded(true);
         }}
       />
@@ -133,6 +116,17 @@ export function ChatPage() {
         </h1>
         <div className="flex items-center gap-4">
           <ModeToggle mode={mode} onChange={setMode} />
+          <button
+            onClick={() => setShowIntegrations(!showIntegrations)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all ${
+              showIntegrations
+                ? "bg-neutral-900 text-white"
+                : "border border-neutral-200 bg-white text-neutral-400 shadow-sm hover:text-neutral-600"
+            }`}
+          >
+            <Link2 size={12} />
+            Integrations
+          </button>
           <span className="text-xs font-light text-neutral-400">
             {user.email}
           </span>
@@ -144,6 +138,21 @@ export function ChatPage() {
           </button>
         </div>
       </header>
+
+      {/* Integrations Panel */}
+      <AnimatePresence>
+        {showIntegrations && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden border-b border-neutral-100"
+          >
+            <IntegrationsPanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {mode === "chat" ? (
