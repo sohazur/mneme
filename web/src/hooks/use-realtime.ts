@@ -343,8 +343,16 @@ export function useRealtime() {
     setState("idle");
   }, [stopTTS]);
 
+  // ── Greeting ──
+
+  const playGreeting = useCallback((text: string) => {
+    addOrUpdateTranscript("assistant", text, true);
+    setState("speaking");
+    speakWithElevenLabs(text);
+  }, [addOrUpdateTranscript, speakWithElevenLabs]);
+
   // Cleanup on unmount
   useEffect(() => () => stop(), [stop]);
 
-  return { state, transcripts, error, start, stop };
+  return { state, transcripts, error, start, stop, playGreeting };
 }

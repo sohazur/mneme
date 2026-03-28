@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { motion } from "motion/react";
 import { useRealtime } from "@/hooks/use-realtime";
 import { MicButton } from "./mic-button";
 import { VoiceTranscript } from "./voice-transcript";
+
+const GREETING = "Oh, hello there! Did you see that little butterfly? It fluttered right past my nose. I just love exploring all the pretty flowers in the forest. Everything feels so sparkly today, doesn't it? I wonder what new adventures we'll find around the next bend. Come on, let's go see!";
 
 function PandaAvatar({ isSpeaking }: { isSpeaking: boolean }) {
   return (
@@ -43,9 +46,22 @@ function PandaAvatar({ isSpeaking }: { isSpeaking: boolean }) {
 }
 
 export function VoicePanel() {
-  const { state, transcripts, error, start, stop } = useRealtime();
+  const { state, transcripts, error, start, stop, playGreeting } = useRealtime();
   const isActive = state !== "idle" && state !== "error";
   const isSpeaking = state === "speaking";
+  const greetedRef = useRef(false);
+
+  // Play greeting on first mount
+  useEffect(() => {
+    if (!greetedRef.current) {
+      greetedRef.current = true;
+      // Small delay so the UI renders first
+      const timer = setTimeout(() => {
+        playGreeting(GREETING);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [playGreeting]);
 
   return (
     <div className="flex flex-1 flex-col">
