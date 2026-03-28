@@ -237,6 +237,42 @@ header h1 {
     color: #ef4444;
 }
 
+.integration-btn.connecting {
+    background: transparent;
+    border-color: var(--accent);
+    color: var(--accent-light);
+    cursor: wait;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.integration-btn.authorized {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--success);
+    color: var(--success);
+    cursor: default;
+}
+
+.integration-card.connecting {
+    border-color: rgba(124, 92, 252, 0.5);
+    background: rgba(124, 92, 252, 0.05);
+}
+
+.btn-spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(124, 92, 252, 0.3);
+    border-top-color: var(--accent-light);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 #chat-area {
     flex: 1;
     overflow-y: auto;

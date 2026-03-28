@@ -41,31 +41,95 @@ function renderIntegrations(integrations) {
     connectedCount.classList.toggle("none", count === 0);
 
     integrationsList.innerHTML = integrations.map(i => `
-        <div class="integration-card ${i.connected ? 'connected' : ''}">
+        <div class="integration-card ${i.connected ? 'connected' : ''}" id="card-${i.name}">
             <span class="integration-icon">${i.icon}</span>
             <div class="integration-info">
                 <div class="integration-name">${i.label}</div>
                 <div class="integration-desc">${i.description}</div>
             </div>
-            <button class="integration-btn ${i.connected ? 'disconnect' : 'connect'}"
-                    onclick="toggleIntegration('${i.name}', ${i.connected})">
-                ${i.connected ? 'Connected' : 'Connect'}
-            </button>
+            ${i.connected
+                ? `<button class="integration-btn disconnect"
+                        onclick="disconnectIntegration('${i.name}')">Connected</button>`
+                : `<button class="integration-btn connect" id="btn-${i.name}"
+                        onclick="startOAuthFlow('${i.name}', '${i.label}')">Connect</button>`
+            }
         </div>
     `).join("");
 }
 
-async function toggleIntegration(name, isConnected) {
-    const endpoint = isConnected ? "/api/integrations/disconnect" : "/api/integrations/connect";
+// OAuth flow labels for One
+const OAUTH_LABELS = {
+    gmail: "Google",
+    google_calendar: "Google",
+    github: "GitHub",
+    slack: "Slack",
+};
+
+async function startOAuthFlow(name, label) {
+    const btn = document.getElementById(`btn-${name}`);
+    const card = document.getElementById(`card-${name}`);
+    if (!btn || !card) return;
+
+    // Phase 1: Show "Connecting..." with spinner
+    btn.disabled = true;
+    btn.classList.remove("connect");
+    btn.classList.add("connecting");
+    btn.innerHTML = '<span class="btn-spinner"></span>Connecting...';
+    card.classList.add("connecting");
+
+    // Phase 2: Open One's OAuth in a popup
+    const provider = OAUTH_LABELS[name] || label;
+    const popup = window.open(
+        `https://app.withone.ai/connections`,
+        `one-oauth-${name}`,
+        "width=500,height=700,left=200,top=100"
+    );
+
+    // Phase 3: Call backend to register the connection via One's API
     try {
-        await fetch(endpoint, {
+        const res = await fetch("/api/integrations/connect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatId, integration: name }),
+        });
+        const data = await res.json();
+
+        if (data.connected) {
+            // Show success briefly
+            btn.innerHTML = 'Authorized!';
+            btn.classList.remove("connecting");
+            btn.classList.add("authorized");
+            card.classList.remove("connecting");
+            card.classList.add("connected");
+
+            // Close popup after short delay if still open
+            setTimeout(() => {
+                if (popup && !popup.closed) popup.close();
+            }, 2000);
+
+            // Refresh the panel
+            setTimeout(() => loadIntegrations(), 1500);
+        }
+    } catch (err) {
+        btn.innerHTML = 'Failed - Retry';
+        btn.classList.remove("connecting");
+        btn.classList.add("connect");
+        btn.disabled = false;
+        card.classList.remove("connecting");
+        console.error("OAuth flow failed:", err);
+    }
+}
+
+async function disconnectIntegration(name) {
+    try {
+        await fetch("/api/integrations/disconnect", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatId, integration: name }),
         });
         await loadIntegrations();
     } catch (err) {
-        console.error("Integration toggle failed:", err);
+        console.error("Disconnect failed:", err);
     }
 }
 
