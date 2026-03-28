@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { chatRouter } from "./routes/chat.js";
 import { scheduleRouter } from "./routes/schedule.js";
 import { healthRouter } from "./routes/health.js";
+import { integrationsRouter } from "./routes/integrations.js";
 import { checkDue } from "../scheduler/index.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -20,6 +21,7 @@ app.use(express.static(join(process.cwd(), "public")));
 app.use("/api", healthRouter);
 app.use("/api", chatRouter);
 app.use("/api", scheduleRouter);
+app.use("/api", integrationsRouter);
 
 // Scheduler heartbeat (check every 30s)
 setInterval(() => {

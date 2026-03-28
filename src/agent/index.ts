@@ -189,6 +189,7 @@ export class MnemeAgent {
                     (args.integration as string) || "",
                     (args.action as string) || "",
                     (args.params as Record<string, unknown>) || {},
+                    chatId,
                 );
                 return { message: result.result };
             }

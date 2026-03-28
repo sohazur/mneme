@@ -9,11 +9,26 @@
 <body>
     <div id="app">
         <header>
-            <div class="logo">
-                <span class="logo-icon">&#x1F9E0;</span>
-                <h1>Mneme</h1>
+            <div class="header-top">
+                <div class="logo">
+                    <span class="logo-icon">&#x1F9E0;</span>
+                    <h1>Mneme</h1>
+                </div>
+                <button id="integrations-toggle" class="integrations-toggle-btn" title="Manage integrations">
+                    <span class="toggle-icon">&#x1F517;</span>
+                    <span class="toggle-label">Integrations</span>
+                    <span id="connected-count" class="connected-badge">0</span>
+                </button>
             </div>
-            <p class="tagline">Chat-first AI operator with memory, integrations & trust receipts</p>
+            <div id="integrations-panel" class="integrations-panel hidden">
+                <div class="integrations-header">
+                    <span class="integrations-title">Connect your apps via One</span>
+                    <a href="https://www.withone.ai" target="_blank" class="one-badge">powered by One</a>
+                </div>
+                <div id="integrations-list" class="integrations-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
         </header>
 
         <div id="chat-area">

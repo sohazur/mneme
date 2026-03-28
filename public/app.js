@@ -12,6 +12,65 @@ const loadingEl = document.getElementById("loading");
 const form = document.getElementById("input-form");
 const input = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
+const integrationsToggle = document.getElementById("integrations-toggle");
+const integrationsPanel = document.getElementById("integrations-panel");
+const integrationsList = document.getElementById("integrations-list");
+const connectedCount = document.getElementById("connected-count");
+
+// ── Integrations Panel ──
+
+integrationsToggle.addEventListener("click", () => {
+    const isHidden = integrationsPanel.classList.toggle("hidden");
+    integrationsToggle.classList.toggle("active", !isHidden);
+    if (!isHidden) loadIntegrations();
+});
+
+async function loadIntegrations() {
+    try {
+        const res = await fetch(`/api/integrations/${chatId}`);
+        const data = await res.json();
+        renderIntegrations(data.integrations);
+    } catch (err) {
+        integrationsList.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;">Failed to load integrations</div>';
+    }
+}
+
+function renderIntegrations(integrations) {
+    const count = integrations.filter(i => i.connected).length;
+    connectedCount.textContent = count;
+    connectedCount.classList.toggle("none", count === 0);
+
+    integrationsList.innerHTML = integrations.map(i => `
+        <div class="integration-card ${i.connected ? 'connected' : ''}">
+            <span class="integration-icon">${i.icon}</span>
+            <div class="integration-info">
+                <div class="integration-name">${i.label}</div>
+                <div class="integration-desc">${i.description}</div>
+            </div>
+            <button class="integration-btn ${i.connected ? 'disconnect' : 'connect'}"
+                    onclick="toggleIntegration('${i.name}', ${i.connected})">
+                ${i.connected ? 'Connected' : 'Connect'}
+            </button>
+        </div>
+    `).join("");
+}
+
+async function toggleIntegration(name, isConnected) {
+    const endpoint = isConnected ? "/api/integrations/disconnect" : "/api/integrations/connect";
+    try {
+        await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatId, integration: name }),
+        });
+        await loadIntegrations();
+    } catch (err) {
+        console.error("Integration toggle failed:", err);
+    }
+}
+
+// Load integrations on startup to show count
+loadIntegrations();
 
 form.addEventListener("submit", async (e) => {
     e.preventDefault();
