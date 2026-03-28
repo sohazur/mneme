@@ -97,18 +97,38 @@ export async function disconnectIntegration(uid: string, integrationName: string
     return true;
 }
 
+// Action IDs from One (via `one actions search`)
+const ACTION_IDS: Record<string, string> = {
+    // Gmail
+    "gmail.list_messages": "conn_mod_def::GJ3odOE-fdw::ijLww5s-SCSplLQtLpxkrw",
+    "gmail.get_message": "conn_mod_def::GJ3ocvMGOS8::D__3BgQSSzWtDUoOqLuX2A",
+    "gmail.send_message": "conn_mod_def::GJ3odB0xmWo::q4zXVfyJSuiqzRIFjn0rQg",
+    "gmail.create_draft": "conn_mod_def::GJ3oaW93Bqo::4mz--d8KSJyLHN3MnxWQWQ",
+    // Google Calendar
+    "gcal.list_events": "conn_mod_def::GJ6RlnIYK20::YzuWSmaVQgurletRDNJavA",
+    "gcal.create_event": "conn_mod_def::GJ6RlR8_N5w::ydGdfN8dSYKGwZr4rQ2UjQ",
+    // GitHub
+    "github.list_repos": "conn_mod_def::GJ3aI7VUveU::c9xSM0j9SZKohYowBNP9tQ",
+    "github.create_issue": "conn_mod_def::GJ3aREAqN_M::w8sP2EcoRfWxYFMlWrm0EA",
+    // Slack
+    "slack.conversations_list": "conn_mod_def::GJ7H51GYpG0::7LpQ3sJYSIq-1F-_8lB7Gw",
+    "slack.chat_post": "conn_mod_def::GJ7H8OOQCII::0Kg2OkmDR1q9u-HRv6QMTQ",
+};
+
 // ── One Passthrough API ──
 
 async function onePassthrough(
     connectionKey: string,
     method: string,
     path: string,
+    actionId: string,
     body?: unknown,
 ): Promise<unknown> {
     const url = `${ONE_BASE}${path}`;
     const headers: Record<string, string> = {
-        Authorization: `Bearer ${ONE_API_KEY}`,
+        "x-one-secret": ONE_API_KEY,
         "x-one-connection-key": connectionKey,
+        "x-one-action-id": actionId,
         Accept: "application/json",
     };
     if (body) headers["Content-Type"] = "application/json";
@@ -194,7 +214,8 @@ async function executeReal(
         case "gmail.list_emails": {
             const maxResults = params.max_results || params.maxResults || 5;
             const listRes = await onePassthrough(connKey, "GET",
-                `/gmail/v1/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`
+                `/gmail/v1/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`,
+                ACTION_IDS["gmail.list_messages"],
             ) as { messages?: { id: string }[] };
 
             if (!listRes.messages?.length) {
@@ -204,7 +225,8 @@ async function executeReal(
             const emails = await Promise.all(
                 listRes.messages.slice(0, Number(maxResults)).map(async (m) => {
                     const msg = await onePassthrough(connKey, "GET",
-                        `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+                        `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+                        ACTION_IDS["gmail.get_message"],
                     ) as {
                         id: string; snippet: string; labelIds?: string[];
                         payload?: { headers?: { name: string; value: string }[] };
@@ -221,7 +243,8 @@ async function executeReal(
         case "gmail.search_emails": {
             const q = params.query || params.q || "";
             const listRes = await onePassthrough(connKey, "GET",
-                `/gmail/v1/users/me/messages?q=${encodeURIComponent(String(q))}&maxResults=5`
+                `/gmail/v1/users/me/messages?q=${encodeURIComponent(String(q))}&maxResults=5`,
+                ACTION_IDS["gmail.list_messages"],
             ) as { messages?: { id: string }[] };
 
             if (!listRes.messages?.length) return { results: [], query: q, message: "No matching emails" };
@@ -229,7 +252,8 @@ async function executeReal(
             const results = await Promise.all(
                 listRes.messages.slice(0, 5).map(async (m) => {
                     const msg = await onePassthrough(connKey, "GET",
-                        `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+                        `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+                        ACTION_IDS["gmail.get_message"],
                     ) as { snippet: string; payload?: { headers?: { name: string; value: string }[] } };
                     const hdrs = msg.payload?.headers ?? [];
                     const h = (name: string) => hdrs.find((x) => x.name === name)?.value || "";
@@ -242,14 +266,14 @@ async function executeReal(
         case "gmail.draft_email": {
             const raw = btoa(`To: ${params.to || ""}\r\nSubject: ${params.subject || ""}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${params.body || params.message || ""}`)
                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-            const result = await onePassthrough(connKey, "POST", `/gmail/v1/users/me/drafts`, { message: { raw } });
+            const result = await onePassthrough(connKey, "POST", `/gmail/v1/users/me/drafts`, ACTION_IDS["gmail.create_draft"], { message: { raw } });
             return { status: "Draft created", draft: result, via: "One -> Gmail API (real)" };
         }
 
         case "gmail.send_email": {
             const raw = btoa(`To: ${params.to || ""}\r\nSubject: ${params.subject || ""}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${params.body || params.message || ""}`)
                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-            const result = await onePassthrough(connKey, "POST", `/gmail/v1/users/me/messages/send`, { raw });
+            const result = await onePassthrough(connKey, "POST", `/gmail/v1/users/me/messages/send`, ACTION_IDS["gmail.send_message"], { raw });
             return { status: "Email sent", result, via: "One -> Gmail API (real)" };
         }
 
@@ -259,13 +283,14 @@ async function executeReal(
             const timeMin = params.timeMin || now.toISOString();
             const timeMax = params.timeMax || new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
             const result = await onePassthrough(connKey, "GET",
-                `/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(String(timeMin))}&timeMax=${encodeURIComponent(String(timeMax))}&singleEvents=true&orderBy=startTime&maxResults=10`
+                `/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(String(timeMin))}&timeMax=${encodeURIComponent(String(timeMax))}&singleEvents=true&orderBy=startTime&maxResults=10`,
+                ACTION_IDS["gcal.list_events"],
             );
             return { ...(result as object), via: "One -> Google Calendar API (real)" };
         }
 
         case "google_calendar.create_event": {
-            const result = await onePassthrough(connKey, "POST", `/calendar/v3/calendars/primary/events`, {
+            const result = await onePassthrough(connKey, "POST", `/calendar/v3/calendars/primary/events`, ACTION_IDS["gcal.create_event"], {
                 summary: params.title || params.summary || "Meeting",
                 start: { dateTime: params.start || params.time, timeZone: params.timezone || "America/New_York" },
                 end: { dateTime: params.end || params.time, timeZone: params.timezone || "America/New_York" },
@@ -278,20 +303,21 @@ async function executeReal(
             const now = new Date();
             const weekLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
             const result = await onePassthrough(connKey, "GET",
-                `/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(weekLater.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=20`
+                `/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(weekLater.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=20`,
+                ACTION_IDS["gcal.list_events"],
             );
             return { busy_events: result, note: "Review these events to find free slots", via: "One -> Google Calendar API (real)" };
         }
 
         // ── GitHub ──
         case "github.list_repos": {
-            const result = await onePassthrough(connKey, "GET", `/user/repos?sort=updated&per_page=10`);
+            const result = await onePassthrough(connKey, "GET", `/user/repos?sort=updated&per_page=10`, ACTION_IDS["github.list_repos"]);
             return { repos: result, via: "One -> GitHub API (real)" };
         }
 
         case "github.create_issue": {
             const repo = params.repo || "sohazur/mneme";
-            const result = await onePassthrough(connKey, "POST", `/repos/${repo}/issues`, {
+            const result = await onePassthrough(connKey, "POST", `/repos/${repo}/issues`, ACTION_IDS["github.create_issue"], {
                 title: params.title || "New issue", body: params.body || "", labels: params.labels || [],
             });
             return { status: "Issue created", issue: result, via: "One -> GitHub API (real)" };
@@ -299,7 +325,7 @@ async function executeReal(
 
         case "github.create_pr": {
             const repo = params.repo || "sohazur/mneme";
-            const result = await onePassthrough(connKey, "POST", `/repos/${repo}/pulls`, {
+            const result = await onePassthrough(connKey, "POST", `/repos/${repo}/pulls`, ACTION_IDS["github.create_issue"], {
                 title: params.title || "New PR", head: params.head || "main", base: params.base || "main", body: params.body || "",
             });
             return { status: "PR created", pr: result, via: "One -> GitHub API (real)" };
@@ -307,18 +333,18 @@ async function executeReal(
 
         case "github.search_code": {
             const q = params.query || params.q || "";
-            const result = await onePassthrough(connKey, "GET", `/search/code?q=${encodeURIComponent(String(q))}&per_page=5`);
+            const result = await onePassthrough(connKey, "GET", `/search/code?q=${encodeURIComponent(String(q))}&per_page=5`, ACTION_IDS["github.list_repos"]);
             return { results: result, via: "One -> GitHub API (real)" };
         }
 
         // ── Slack ──
         case "slack.list_channels": {
-            const result = await onePassthrough(connKey, "GET", `/api/conversations.list?types=public_channel&limit=20`);
+            const result = await onePassthrough(connKey, "GET", `/api/conversations.list?types=public_channel&limit=20`, ACTION_IDS["slack.conversations_list"]);
             return { ...(result as object), via: "One -> Slack API (real)" };
         }
 
         case "slack.send_message": {
-            const result = await onePassthrough(connKey, "POST", `/api/chat.postMessage`, {
+            const result = await onePassthrough(connKey, "POST", `/api/chat.postMessage`, ACTION_IDS["slack.chat_post"], {
                 channel: params.channel || "", text: params.text || params.message || "",
             });
             return { status: "Message sent", result, via: "One -> Slack API (real)" };
@@ -326,7 +352,7 @@ async function executeReal(
 
         case "slack.search_messages": {
             const q = params.query || params.q || "";
-            const result = await onePassthrough(connKey, "GET", `/api/search.messages?query=${encodeURIComponent(String(q))}&count=5`);
+            const result = await onePassthrough(connKey, "GET", `/api/search.messages?query=${encodeURIComponent(String(q))}&count=5`, ACTION_IDS["slack.conversations_list"]);
             return { results: result, via: "One -> Slack API (real)" };
         }
 
