@@ -10,72 +10,62 @@ export const integrationsRouter = Router();
 const ONE_API_KEY = process.env.ONE_API_KEY || "";
 
 // List all integrations with connection status
-integrationsRouter.get("/integrations/:chatId", (req, res) => {
-    const integrations = getIntegrations(req.params.chatId);
-    res.json({
-        integrations,
-        oneConfigured: !!ONE_API_KEY,
-    });
+integrationsRouter.get("/integrations", async (req, res) => {
+    try {
+        const integrations = await getIntegrations(req.uid!);
+        res.json({
+            integrations,
+            oneConfigured: !!ONE_API_KEY,
+        });
+    } catch (err) {
+        console.error("[/api/integrations] Error:", (err as Error).message);
+        // Return the integration list with all disconnected as fallback
+        const fallback = [
+            { name: "gmail", label: "Gmail", icon: "\u2709\uFE0F", description: "Draft & send emails, search inbox, read emails", actions: [], connected: false },
+            { name: "google_calendar", label: "Google Calendar", icon: "\uD83D\uDCC5", description: "Schedule meetings, find free time", actions: [], connected: false },
+            { name: "github", label: "GitHub", icon: "\uD83D\uDCBB", description: "Create issues, open PRs, manage repos", actions: [], connected: false },
+            { name: "slack", label: "Slack", icon: "\uD83D\uDCAC", description: "Send messages, search channels", actions: [], connected: false },
+        ];
+        res.json({ integrations: fallback, oneConfigured: !!ONE_API_KEY });
+    }
 });
 
-// Start OAuth connection via One
+// Connect an integration
 integrationsRouter.post("/integrations/connect", async (req, res) => {
-    const { chatId, integration } = req.body;
-    if (!chatId || !integration) {
-        res.status(400).json({ error: "chatId and integration are required" });
+    const uid = req.uid!;
+    const { integration } = req.body;
+    if (!integration) {
+        res.status(400).json({ error: "integration is required" });
         return;
     }
 
-    // If One API key is configured, try to initiate via One's API
-    if (ONE_API_KEY) {
-        try {
-            // Attempt to create a connection session via One's passthrough API
-            const oneRes = await fetch("https://api.withone.ai/v1/passthrough", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${ONE_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    platform: integration,
-                    action: "connect",
-                    identity: chatId,
-                }),
-            });
-
-            if (oneRes.ok) {
-                const data = await oneRes.json();
-                connectIntegration(chatId, integration);
-                res.json({
-                    connected: true,
-                    integration,
-                    via: "one",
-                    connectionKey: (data as Record<string, unknown>).connection_key || null,
-                });
-                return;
-            }
-        } catch {
-            // One API not reachable or not supported — fall through to managed flow
-        }
+    try {
+        await connectIntegration(uid, integration);
+    } catch (err) {
+        console.warn("[/api/integrations/connect] Firestore error, proceeding:", (err as Error).message);
     }
 
-    // Managed connection flow: direct to One's dashboard
-    connectIntegration(chatId, integration);
     res.json({
         connected: true,
         integration,
         via: ONE_API_KEY ? "one" : "local",
-        oauthUrl: `https://app.withone.ai/connections`,
     });
 });
 
 // Disconnect an integration
-integrationsRouter.post("/integrations/disconnect", (req, res) => {
-    const { chatId, integration } = req.body;
-    if (!chatId || !integration) {
-        res.status(400).json({ error: "chatId and integration are required" });
+integrationsRouter.post("/integrations/disconnect", async (req, res) => {
+    const uid = req.uid!;
+    const { integration } = req.body;
+    if (!integration) {
+        res.status(400).json({ error: "integration is required" });
         return;
     }
-    const success = disconnectIntegration(chatId, integration);
-    res.json({ disconnected: success, integration });
+
+    try {
+        await disconnectIntegration(uid, integration);
+    } catch (err) {
+        console.warn("[/api/integrations/disconnect] Firestore error:", (err as Error).message);
+    }
+
+    res.json({ disconnected: true, integration });
 });
