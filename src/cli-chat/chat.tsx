@@ -1,7 +1,7 @@
 import React from "react";
 import { Box } from "ink";
-import { InputBar } from "./input-bar";
-import { MessagePanel } from "./message-panel";
+import { InputBar } from "./input-bar.js";
+import { MessagePanel } from "./message-panel.js";
 
 export interface ChatMessage {
     role: "user" | "assistant";

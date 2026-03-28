@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mneme — Your AI Operator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <div class="logo">
+                <span class="logo-icon">&#x1F9E0;</span>
+                <h1>Mneme</h1>
+            </div>
+            <p class="tagline">Chat-first AI operator with memory, integrations & trust receipts</p>
+        </header>
+
+        <div id="chat-area">
+            <div id="messages">
+                <div class="message assistant">
+                    <div class="message-content">
+                        <p>Hi! I'm <strong>Mneme</strong>, your AI operator. I can:</p>
+                        <ul>
+                            <li>Remember context across our conversations (via HydraDB)</li>
+                            <li>Draft emails, schedule meetings, create GitHub issues (via One)</li>
+                            <li>Set reminders and recurring tasks</li>
+                            <li>Show you exactly what I did with <strong>trust receipts</strong></li>
+                        </ul>
+                        <p>Try: "Remind me to review the PR tomorrow at 9am" or "Draft an email to the team about the launch"</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="loading" class="hidden">
+                <div class="dot-pulse"></div>
+                <span>Mneme is thinking...</span>
+            </div>
+        </div>
+
+        <form id="input-form">
+            <input type="text" id="user-input" placeholder="Ask Mneme anything..." autocomplete="off" autofocus>
+            <button type="submit" id="send-btn">Send</button>
+        </form>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

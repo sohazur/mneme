@@ -1,118 +1,150 @@
-<div align="center">
+# Mneme
 
-![Banner](./.github/assets/banner.png)
+**Chat-first AI operator** with persistent memory, integrations, scheduling, and trust receipts.
 
-# @photon-ai/rapid
+Mneme connects to your tools (Gmail, Calendar, GitHub, Slack via [One](https://withone.ai)), remembers context across conversations (via [HydraDB](https://hydradb.com)), schedules proactive reminders, and shows you exactly what it did on every response with **trust receipts**.
 
-</div>
-
-Toolkit for rapid AI and agent prototyping. Rapid gives you reusable building blocks so you can validate new agent architectures, memory systems, and workflows without rebuilding the interface layer every time.
-
-## Why Rapid
-- Terminal-first developer experience for iterating on prompts, memory, and control flows.
-- Composable modules exposed as ESM entry points; mix and match what you need.
-- TypeScript-first API with strong types for chat messages, event handlers, and controller handles.
-
-## Installation
-Install the package with your preferred manager (Node.js 18+):
+## Quick Start
 
 ```bash
-npm install @photon-ai/rapid
-# or
-pnpm add @photon-ai/rapid
-# or
-bun add @photon-ai/rapid
-```
-
-Rapid expects a TypeScript toolchain (`typescript@^5.9.3` as a peer dependency). If you are running in CommonJS, bundle or load with a compatible transpiler such as `ts-node/register`.
-
-## Module Catalog
-This section will expand as new building blocks ship. Each module lives under an explicit export path so you can import only what you need.
-
-| Category | Module | Description | Status |
-| --- | --- | --- | --- |
-| Chat TUI | `@photon-ai/rapid/cli-chat` | Ink-powered terminal chat UI with message panel, input bar, and controller API. | Available |
-
-## Usage Patterns
-### CLI Chat
-Render the chat surface inside your CLI and connect it to your agent logic.
-
-```ts
-// demo.ts
-import { renderChatUI } from "@photon-ai/rapid/cli-chat";
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const chat = renderChatUI();
-
-chat.sendMessage("Welcome to Rapid! Type anything and I'll echo it back.");
-
-chat.onInput(async (prompt) => {
-    chat.sendMessage("Thinking...");
-    await delay(500);
-    chat.sendMessage(`Echo: ${prompt.toUpperCase()}`);
-});
-
-// Keep the Ink app alive. Press Ctrl+C to exit.
-await new Promise(() => {});
-```
-
-Run the example with your preferred TypeScript runner:
-
-```bash
-ts-node demo.ts
-```
-
-#### Controller API snapshot
-- `renderChatUI()` mounts the Ink application and returns an imperative controller.
-- `chat.onInput(handler)` registers listeners for user-submitted prompts (supports async handlers).
-- `chat.sendMessage(content)` streams assistant messages back into the UI in real time.
-
-## Developing New Modules
-- Add modules under `src/<module-name>` and export them via `package.json`.
-- Document each module with a short description and example import path in the catalog above.
-- Keep runnable snippets in this README so users can copy-paste and tinker.
-
-## Repo Scripts
-Rapid uses [Bun](https://bun.com) for scripts and dependency management:
-
-```bash
-bun install        # install dependencies
-bun run src/index.ts
-```
-
----
-
-# Hackathon Demo: FollowUp OS (CLI)
-
-This repo now includes a runnable hackathon demo CLI app:
-
-- Entry: `src/followup-os/index.tsx`
-- Local memory: `./data/memory.jsonl` (JSONL append-only)
-
-## Run
-
-```bash
+git clone https://github.com/sohazur/mneme.git
+cd mneme
+cp .env.example .env    # fill in your API keys
 npm install
-npm run followup-os
+npm run dev             # → http://localhost:3000
 ```
 
-## Commands (inside the chat UI)
+### Environment Variables
 
-- `ingest` → paste meeting notes (multi-line), end with a single `.` line
-- `followups today` → shows recent action items
-- `what did <name> ask` → searches stored notes
-- `draft email to <name> about <topic>` → generates a follow-up draft + writes a receipt
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LLM_API_KEY` | Yes | API key for Kimi K2.5 (GMI Serving) |
+| `LLM_MODEL` | No | Model ID (default: `moonshotai/Kimi-K2.5`) |
+| `LLM_BASE_URL` | No | LLM API base URL (default: `https://api.gmi-serving.com/v1`) |
+| `HYDRA_OPENCLAW_API_KEY` | No | HydraDB API key for persistent memory |
+| `PORT` | No | Server port (default: `3000`) |
 
-## 90-second demo script
+## Architecture
 
-1) Type `ingest` and paste:
-   - "Met Hashem (SNBLA). Wants Tue 11:30 Riyadh. Needs deck + intro to Saleh."
-   - "Action: send updated invite. Action: email deck."
-   End with `.`
-2) Show extracted facts + the **TRUST RECEIPT**.
-3) Type `followups today` → show prioritized actions.
-4) Type `draft email to Hashem about updated time + deck` → show subject/body + receipt.
+```
+Browser (public/)           Express Server              Agent Core
+┌──────────────────┐      ┌──────────────────┐       ┌──────────────────────┐
+│ Vanilla HTML/CSS │ ──── │ POST /api/chat   │ ──── │ 1. Recall (HydraDB)  │
+│ Trust Receipt UI │ JSON │ POST /api/schedule│       │ 2. LLM (Kimi K2.5)  │
+│ Session (UUID)   │ ──── │ Static serving   │ ──── │ 3. Tools (One/Sched) │
+└──────────────────┘      └──────────────────┘       │ 4. Store memory      │
+                                                     │ 5. Trust receipt     │
+                                                     └──────────────────────┘
+```
 
-## Contributions
-Contributions, bug reports, and ideas are welcome—open an issue or PR when you build something others can reuse.
+## Features
+
+### Memory (HydraDB)
+Every conversation is stored in HydraDB. On each new message, Mneme recalls relevant context from past conversations and injects it into the LLM prompt. The trust receipt shows which memories were recalled and their relevance scores.
+
+### Integrations (One)
+Mneme can perform actions across connected apps:
+- **Gmail**: Draft/send emails, search inbox
+- **Google Calendar**: Create events, find free time
+- **GitHub**: Create issues, open PRs
+- **Slack**: Send messages, search channels
+
+### Scheduling (OpenClaw-inspired)
+Set one-time reminders or recurring tasks:
+- "Remind me to review the PR tomorrow at 9am"
+- "Every Monday at 8am, summarize my week"
+
+### Trust Receipts
+Every response includes a collapsible trust receipt showing:
+- Memories recalled (with relevance scores)
+- Tools called (with arguments and results)
+- Actions performed
+- Model used, latency, timestamp
+
+## API
+
+### POST /api/chat
+```bash
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chatId": "test-session-1",
+    "message": "Draft an email to the team about the hackathon demo",
+    "history": []
+  }'
+```
+
+Response:
+```json
+{
+  "reply": "I've drafted an email for the team...",
+  "trustReceipt": {
+    "timestamp": "2026-03-28T13:00:00Z",
+    "model": "moonshotai/Kimi-K2.5",
+    "latencyMs": 1200,
+    "memoriesRecalled": [],
+    "toolsCalled": [{ "name": "integration_action", "args": {...} }],
+    "actionsPerformed": ["Draft created via One → Gmail API"],
+    "memoryStored": true
+  }
+}
+```
+
+### GET /api/health
+Returns service status and configuration.
+
+### POST /api/schedule
+Create a scheduled reminder.
+
+### GET /api/schedules/:chatId
+List active schedules for a session.
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server with hot reload |
+| `npm start` | Start production server |
+| `npm run build` | Compile TypeScript |
+| `npm run cli` | Run the FollowUp OS CLI demo |
+
+## Tech Stack
+
+- **LLM**: Kimi K2.5 via GMI Serving (OpenAI-compatible)
+- **Memory**: HydraDB (tenant: openclaw)
+- **Integrations**: One (withone.ai)
+- **Server**: Express
+- **Frontend**: Vanilla HTML/CSS/JS
+- **Language**: TypeScript (Node.js)
+
+## Project Structure
+
+```
+mneme/
+├── public/                 # Frontend (served as static)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+├── src/
+│   ├── agent/              # Core orchestration
+│   │   ├── index.ts        # MnemeAgent class
+│   │   ├── llm.ts          # Kimi K2.5 client
+│   │   └── types.ts        # Interfaces
+│   ├── memory/
+│   │   └── hydradb.ts      # HydraDB client
+│   ├── scheduler/
+│   │   └── index.ts        # Cron/reminder system
+│   ├── integrations/
+│   │   └── one.ts          # One integration layer
+│   ├── server/
+│   │   ├── index.ts        # Express entry point
+│   │   └── routes/
+│   └── cli-chat/           # Ink terminal UI
+├── .env.example
+├── tsconfig.json
+└── package.json
+```
+
+## License
+
+MIT

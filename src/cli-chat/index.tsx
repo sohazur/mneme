@@ -1,6 +1,6 @@
 import React, { createRef, forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { render } from "ink";
-import { type ChatMessage, ChatUI } from "./chat";
+import { type ChatMessage, ChatUI } from "./chat.js";
 
 type InputListener = (input: string) => void;
 
