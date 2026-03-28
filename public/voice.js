@@ -170,6 +170,11 @@ function handleRealtimeEvent(event) {
         return;
     }
 
+    // Debug: log all events to help troubleshoot
+    if (data.type && !data.type.includes("audio.delta") && !data.type.includes("audio_transcript.delta")) {
+        console.log(`[Voice Event] ${data.type}`, data.type.includes("function") || data.type.includes("output_item") ? data : "");
+    }
+
     switch (data.type) {
         // User speech transcript (partial)
         case "conversation.item.input_audio_transcription.delta":
@@ -349,6 +354,7 @@ async function handleFunctionCall(callId, name, argsStr) {
 // ── ElevenLabs TTS ──
 
 async function speakWithElevenLabs(text) {
+    console.log(`[TTS] Queuing: "${text.slice(0, 80)}..."`);
     ttsQueue.push(text);
     if (!ttsPlaying) {
         playNextTTS();
@@ -376,12 +382,14 @@ async function playNextTTS() {
         });
 
         if (!res.ok) {
-            console.error("[TTS] Failed:", res.status);
+            const errText = await res.text();
+            console.error("[TTS] Failed:", res.status, errText);
             playNextTTS();
             return;
         }
 
         const audioBlob = await res.blob();
+        console.log(`[TTS] Received audio: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
         const audioUrl = URL.createObjectURL(audioBlob);
 
         // Use a separate audio element for ElevenLabs
@@ -389,15 +397,18 @@ async function playNextTTS() {
         ttsAudio.volume = 1.0;
 
         ttsAudio.onended = () => {
+            console.log("[TTS] Playback ended");
             URL.revokeObjectURL(audioUrl);
             playNextTTS();
         };
 
-        ttsAudio.onerror = () => {
+        ttsAudio.onerror = (e) => {
+            console.error("[TTS] Playback error:", e);
             URL.revokeObjectURL(audioUrl);
             playNextTTS();
         };
 
+        console.log("[TTS] Playing audio...");
         await ttsAudio.play();
     } catch (err) {
         console.error("[TTS] Error:", err);

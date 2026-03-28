@@ -3,3 +3,6 @@ dist/
 .env
 data/
 *.tsbuildinfo
+.gstack/
+web/.next/
+web/node_modules/

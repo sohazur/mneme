@@ -8,11 +8,14 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "J6hZGZUVxGqz5rKOBBCK";
 
-const SYSTEM_INSTRUCTIONS = `You are Mneme, a personal AI operator. You help users manage their work, communications, and schedule by taking actions on their behalf. You have persistent memory, app integrations (Gmail, Calendar, GitHub, Slack), and scheduling capabilities.
+const SYSTEM_INSTRUCTIONS = `You are Mneme, a personal AI operator. You help users manage their work, communications, and schedule by taking actions on their behalf.
 
-IMPORTANT: When the user asks about emails, calendar, GitHub, or Slack — ALWAYS call the integration_action tool. Do NOT make up placeholder data. Call the tool, wait for the real result, then read it back to the user.
-
-Be concise, warm, and action-oriented. When speaking, keep responses brief and conversational.`;
+CRITICAL RULES:
+1. ALWAYS respond in English. Never respond in any other language, regardless of what language the user speaks in.
+2. When the user asks ANYTHING about emails, calendar events, GitHub, or Slack — you MUST call the integration_action tool FIRST. Do NOT make up or fabricate any data. Do NOT respond until you have the real tool result.
+3. For reminders and scheduling, use the schedule_reminder tool.
+4. Keep responses brief and conversational since you are speaking out loud.
+5. After receiving tool results, summarize them naturally in English.`;
 
 // Tool definitions for OpenAI Realtime API format
 const REALTIME_TOOLS = [
@@ -173,7 +176,7 @@ realtimeRouter.post("/realtime/tts", async (req, res) => {
 
     try {
         const ttsRes = await fetch(
-            `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`,
+            `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream?output_format=mp3_44100_128`,
             {
                 method: "POST",
                 headers: {
@@ -182,7 +185,7 @@ realtimeRouter.post("/realtime/tts", async (req, res) => {
                 },
                 body: JSON.stringify({
                     text,
-                    model_id: "eleven_turbo_v2_5",
+                    model_id: "eleven_v3",
                     voice_settings: {
                         stability: 0.5,
                         similarity_boost: 0.75,
@@ -192,6 +195,8 @@ realtimeRouter.post("/realtime/tts", async (req, res) => {
                 }),
             },
         );
+
+        console.log(`[ElevenLabs] TTS request for: "${text.slice(0, 60)}..." → ${ttsRes.status}`);
 
         if (!ttsRes.ok) {
             const err = await ttsRes.text();

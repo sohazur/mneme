@@ -1,6 +1,6 @@
 import { HydraDBClient } from "../memory/hydradb.js";
 import { callLLM, TOOL_DEFINITIONS } from "./llm.js";
-import { addSchedule, listSchedules } from "../scheduler/index.js";
+import { addSchedule, listSchedules } from "../server/firestore/schedules.js";
 import { executeIntegrationAction, getIntegrations } from "../integrations/one.js";
 import type {
     AgentRequest,
@@ -77,7 +77,7 @@ export class MnemeAgent {
         }
 
         // 2. Get connected integrations for this session
-        const integrations = getIntegrations(req.chatId);
+        const integrations = await getIntegrations(req.chatId);
         const connectedNames = integrations
             .filter((i) => i.connected)
             .map((i) => i.name);
@@ -183,7 +183,7 @@ export class MnemeAgent {
     ): Promise<{ message: string }> {
         switch (name) {
             case "schedule_reminder": {
-                const schedule = addSchedule(
+                const schedule = await addSchedule(
                     chatId,
                     (args.name as string) || "Reminder",
                     (args.message as string) || "",
@@ -196,7 +196,7 @@ export class MnemeAgent {
                 };
             }
             case "list_reminders": {
-                const list = listSchedules(chatId);
+                const list = await listSchedules(chatId);
                 if (list.length === 0) {
                     return { message: "No active reminders." };
                 }

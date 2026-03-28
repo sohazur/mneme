@@ -12,17 +12,20 @@
     "main": "./dist/server/index.js",
     "scripts": {
         "dev": "tsx watch src/server/index.ts",
+        "dev:web": "cd web && npm run dev",
         "start": "node dist/server/index.js",
         "build": "tsc",
+        "build:web": "cd web && npm run build",
         "cli": "npx tsx src/followup-os/index.tsx"
     },
     "dependencies": {
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "express": "^5.1.0",
-        "openai": "^4.85.4",
+        "firebase-admin": "^13.7.0",
         "ink": "^6.4.0",
         "ink-text-input": "^6.0.0",
+        "openai": "^4.85.4",
         "react": "^19.2.0"
     },
     "devDependencies": {
